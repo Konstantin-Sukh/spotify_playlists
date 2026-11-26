@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.oauth2 import SpotifyOAuth
 
-SCOPES = "playlist-modify-public playlist-modify-private"
+SCOPES = "playlist-modify-public playlist-modify-private user-library-read"
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 
 

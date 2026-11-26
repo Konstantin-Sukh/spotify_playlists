@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from spotipy.exceptions import SpotifyException
+
 from friday_drop.spotify_client import SpotifyClient
 
 
@@ -91,3 +93,31 @@ def test_create_playlist_adds_tracks_in_batches() -> None:
     assert mock_sp.playlist_add_items.call_count == 2
     assert len(mock_sp.playlist_add_items.call_args_list[0][0][1]) == 100
     assert len(mock_sp.playlist_add_items.call_args_list[1][0][1]) == 5
+
+
+def test_get_liked_artists_filters_by_min_tracks_and_handles_limit_fallback() -> None:
+    mock_sp = MagicMock()
+    err_400 = SpotifyException(http_status=400, code=-1, msg="Invalid limit")
+    page = {
+        "items": [
+            {"track": {"artists": [{"id": "a1", "name": "Muse"}]}},
+            {"track": {"artists": [{"id": "a1", "name": "Muse"}, {"id": "a2", "name": "Guest"}]}},
+            {"track": {"artists": [{"id": "a3", "name": "Daft Punk"}]}},
+            {"track": {"artists": [{"id": "a3", "name": "Daft Punk"}]}},
+            {"track": {"artists": [{"id": "a3", "name": "Daft Punk"}]}},
+        ],
+        "next": None,
+    }
+    mock_sp.current_user_saved_tracks.side_effect = [err_400, page]
+
+    client = SpotifyClient(
+        client_id="id",
+        client_secret="secret",
+        refresh_token="refresh",
+        sp=mock_sp,
+    )
+    liked = client.get_liked_artists(min_tracks=2)
+
+    assert liked == [("a3", "Daft Punk"), ("a1", "Muse")]
+    assert mock_sp.current_user_saved_tracks.call_args_list[0].kwargs == {"limit": 50, "offset": 0}
+    assert mock_sp.current_user_saved_tracks.call_args_list[1].kwargs == {"limit": 10, "offset": 0}

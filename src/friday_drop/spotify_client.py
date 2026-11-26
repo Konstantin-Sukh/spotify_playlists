@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 import spotipy
 from spotipy.cache_handler import MemoryCacheHandler
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
 from friday_drop.models import TrackCandidate
 
-SCOPES = "playlist-modify-public playlist-modify-private"
+SCOPES = "playlist-modify-public playlist-modify-private user-library-read"
 PLAYLIST_BATCH_SIZE = 100
 
 
@@ -57,6 +59,51 @@ class SpotifyClient:
 
         best = items[0]
         return best["id"], best["name"]
+
+    def get_liked_artists(self, min_tracks: int = 2) -> list[tuple[str, str]]:
+        """Return (artist_id, name) for artists with at least min_tracks in Liked Songs."""
+        if min_tracks <= 0:
+            return []
+
+        counts: Counter[str] = Counter()
+        names: dict[str, str] = {}
+        offset = 0
+        limit = 50
+
+        while True:
+            try:
+                page = self._sp.current_user_saved_tracks(limit=limit, offset=offset)
+            except SpotifyException as exc:
+                if exc.http_status == 400 and limit > 10:
+                    limit = 10
+                    continue
+                raise
+
+            items = page.get("items", [])
+            if not items:
+                break
+
+            for item in items:
+                track = item.get("track") or {}
+                seen_in_track: set[str] = set()
+                for artist in track.get("artists", []):
+                    artist_id = artist.get("id")
+                    artist_name = artist.get("name")
+                    if not artist_id or not artist_name or artist_id in seen_in_track:
+                        continue
+                    seen_in_track.add(artist_id)
+                    counts[artist_id] += 1
+                    names.setdefault(artist_id, artist_name)
+
+            if page.get("next") is None:
+                break
+            offset += limit
+
+        return [
+            (artist_id, names[artist_id])
+            for artist_id, count in counts.most_common()
+            if count >= min_tracks
+        ]
 
     def get_recent_tracks(
         self,
@@ -116,7 +163,7 @@ class SpotifyClient:
         recent: list[dict] = []
         offset = 0
         limit = 10
-        max_pages = 5
+        max_pages = 2
 
         for _ in range(max_pages):
             page = self._sp.artist_albums(
