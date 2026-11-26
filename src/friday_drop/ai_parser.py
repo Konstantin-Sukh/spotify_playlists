@@ -12,7 +12,13 @@ from friday_drop.models import ParsedArtists
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+FALLBACK_STATUS_CODES = {404, 429, 500, 502, 503, 504}
+DEFAULT_FALLBACK_MODELS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3.7-flash",
+)
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_DELAY_SECONDS = 15.0
 
@@ -32,12 +38,13 @@ class ArtistAIParser:
         self,
         api_key: str,
         model: str = "gemini-3.8-flash",
+        fallback_models: list[str] | tuple[str, ...] = DEFAULT_FALLBACK_MODELS,
         client: genai.Client | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     ) -> None:
         self._client = client or genai.Client(api_key=api_key)
-        self._model = model
+        self._models = _unique_models([model, *fallback_models])
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds
 
@@ -61,7 +68,7 @@ class ArtistAIParser:
         return _deduplicate_artists(raw_artists)
 
     def _generate_with_retries(self, raw_text: str) -> types.GenerateContentResponse:
-        """Call Gemini generate_content with retries on transient 429/5xx API errors."""
+        """Try models in order, retrying the chain on transient API errors."""
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_INSTRUCTION,
             response_mime_type="application/json",
@@ -69,28 +76,50 @@ class ArtistAIParser:
             temperature=0.0,
         )
 
-        for attempt in range(self._max_retries + 1):
-            try:
-                return self._client.models.generate_content(
-                    model=self._model,
-                    contents=raw_text,
-                    config=config,
-                )
-            except errors.APIError as exc:
-                status_code = getattr(exc, "code", None)
-                if status_code not in RETRYABLE_STATUS_CODES or attempt >= self._max_retries:
-                    raise
+        last_error: errors.APIError | None = None
 
+        for round_idx in range(self._max_retries + 1):
+            for model_name in self._models:
+                try:
+                    return self._client.models.generate_content(
+                        model=model_name,
+                        contents=raw_text,
+                        config=config,
+                    )
+                except errors.APIError as exc:
+                    status_code = getattr(exc, "code", None)
+                    if status_code not in FALLBACK_STATUS_CODES:
+                        raise
+                    last_error = exc
+                    logger.warning(
+                        "Модель %s вернула %s, переключаюсь на следующую модель...",
+                        model_name,
+                        status_code,
+                    )
+
+            if round_idx < self._max_retries:
                 logger.warning(
-                    "Gemini API вернул %s (попытка %d/%d). Повтор через %.0f сек...",
-                    status_code,
-                    attempt + 1,
+                    "Все модели недоступны (попытка %d/%d). Повтор через %.0f сек...",
+                    round_idx + 1,
                     self._max_retries,
                     self._retry_delay_seconds,
                 )
                 time.sleep(self._retry_delay_seconds)
 
-        raise RuntimeError("Unreachable retry state")
+        assert last_error is not None
+        raise last_error
+
+
+def _unique_models(models: list[str]) -> list[str]:
+    """Preserve order while removing empty or duplicate model names."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for name in models:
+        cleaned = name.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            result.append(cleaned)
+    return result
 
 
 def _deduplicate_artists(artists: list[str]) -> list[str]:

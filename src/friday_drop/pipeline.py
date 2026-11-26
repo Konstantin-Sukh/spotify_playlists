@@ -41,6 +41,7 @@ def run_pipeline(
     parser = ai_parser or ArtistAIParser(
         api_key=settings.gemini_api_key,
         model=settings.gemini_model,
+        fallback_models=settings.gemini_fallback_models,
     )
     artists = parser.parse_comments(comments)
     if not artists:
