@@ -73,8 +73,7 @@ def test_get_recent_tracks_filters_by_six_days_utc() -> None:
 
 def test_create_playlist_adds_tracks_in_batches() -> None:
     mock_sp = MagicMock()
-    mock_sp.current_user.return_value = {"id": "user_123"}
-    mock_sp.user_playlist_create.return_value = {
+    mock_sp.current_user_playlist_create.return_value = {
         "id": "pl_123",
         "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_123"},
     }

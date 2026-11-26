@@ -98,9 +98,7 @@ class SpotifyClient:
         description: str = "Свежие релизы за последние 6 дней, собранные агентом Friday Drop.",
     ) -> str:
         """Create a Spotify playlist and add tracks in batches. Returns the playlist URL."""
-        user_id = self._sp.current_user()["id"]
-        playlist = self._sp.user_playlist_create(
-            user=user_id,
+        playlist = self._sp.current_user_playlist_create(
             name=name,
             public=public,
             description=description,

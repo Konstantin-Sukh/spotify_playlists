@@ -9,7 +9,7 @@ description = "AI-powered agent that builds a weekly Spotify playlist from fresh
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "spotipy>=2.24.0",
+    "spotipy>=2.26.0",
     "google-genai>=1.0.0",
     "PyGithub>=2.4.0",
     "pydantic>=2.9.0",
