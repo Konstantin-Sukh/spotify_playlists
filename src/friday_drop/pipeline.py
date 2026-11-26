@@ -86,6 +86,7 @@ def run_pipeline(
             artist_name=canonical_name,
             lookback_days=settings.lookback_days,
             now_utc=current_utc,
+            max_tracks_per_release=settings.max_tracks_per_release,
         )
         if artist_tracks:
             matched_artists.append(canonical_name)

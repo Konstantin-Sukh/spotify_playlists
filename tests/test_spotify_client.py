@@ -121,3 +121,44 @@ def test_get_liked_artists_filters_by_min_tracks_and_handles_limit_fallback() ->
     assert liked == [("a3", "Daft Punk"), ("a1", "Muse")]
     assert mock_sp.current_user_saved_tracks.call_args_list[0].kwargs == {"limit": 50, "offset": 0}
     assert mock_sp.current_user_saved_tracks.call_args_list[1].kwargs == {"limit": 10, "offset": 0}
+
+
+def test_get_recent_tracks_skips_releases_with_more_than_four_tracks() -> None:
+    mock_sp = MagicMock()
+    mock_sp.artist_albums.return_value = {
+        "items": [
+            {
+                "id": "alb_big",
+                "name": "Full LP",
+                "release_date": "2026-11-24",
+                "release_date_precision": "day",
+                "total_tracks": 12,
+            },
+            {
+                "id": "alb_ep",
+                "name": "Small EP",
+                "release_date": "2026-11-24",
+                "release_date_precision": "day",
+                "total_tracks": 4,
+            },
+        ],
+        "next": None,
+    }
+    mock_sp.album_tracks.return_value = {
+        "items": [{"uri": f"spotify:track:{i}", "name": f"Track {i}"} for i in range(4)],
+        "next": None,
+    }
+
+    client = SpotifyClient(
+        client_id="id",
+        client_secret="secret",
+        refresh_token="refresh",
+        sp=mock_sp,
+    )
+    now_utc = datetime(2026, 11, 26, 9, 0, tzinfo=timezone.utc)
+    tracks = client.get_recent_tracks(
+        "artist_1", "Muse", lookback_days=6, now_utc=now_utc, max_tracks_per_release=4
+    )
+
+    assert len(tracks) == 4
+    mock_sp.album_tracks.assert_called_once_with("alb_ep", limit=50, offset=0)

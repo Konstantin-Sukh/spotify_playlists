@@ -111,8 +111,9 @@ class SpotifyClient:
         artist_name: str,
         lookback_days: int = 6,
         now_utc: datetime | None = None,
+        max_tracks_per_release: int = 4,
     ) -> list[TrackCandidate]:
-        """Collect tracks from artist's singles and albums released within lookback_days (UTC)."""
+        """Collect tracks from artist's releases within lookback_days (UTC)."""
         current_utc = now_utc or datetime.now(timezone.utc)
         cutoff_date = current_utc.date() - timedelta(days=lookback_days)
 
@@ -120,11 +121,19 @@ class SpotifyClient:
         recent_albums = self._fetch_recent_albums(artist_id, cutoff_date)
 
         for album in recent_albums:
+            total_tracks = album.get("total_tracks")
+            if total_tracks is not None and total_tracks > max_tracks_per_release:
+                continue
+
             album_id = album["id"]
             album_name = album["name"]
             release_date = album["release_date"]
 
-            for track in self._fetch_album_tracks(album_id):
+            album_tracks = self._fetch_album_tracks(album_id)
+            if len(album_tracks) > max_tracks_per_release:
+                continue
+
+            for track in album_tracks:
                 tracks.append(
                     TrackCandidate(
                         uri=track["uri"],
