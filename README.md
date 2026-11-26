@@ -97,6 +97,7 @@ flowchart TD
 | `SPOTIFY_CLIENT_ID` | Client ID приложения Spotify |
 | `SPOTIFY_CLIENT_SECRET` | Client Secret приложения Spotify |
 | `SPOTIFY_REFRESH_TOKEN` | Refresh-токен, полученный через `scripts/get_spotify_token.py` |
+| `NTFY_TOPIC` | *(Опционально)* Название секретного топика в [ntfy.sh](https://ntfy.sh/) для push-уведомления в четверг |
 
 > `GITHUB_TOKEN` и `GITHUB_REPOSITORY` передаются в GitHub Actions автоматически (права `issues: write` уже настроены в workflow-файлах).
 
