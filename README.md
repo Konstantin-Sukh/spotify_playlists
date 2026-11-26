@@ -6,7 +6,7 @@
 
 1. **Четверг, 19:00 МСК (16:00 UTC):** GitHub Actions запускает [`thursday_prompt.yml`](.github/workflows/thursday_prompt.yml) и открывает Issue `Пятничный дроп: кого добавляем?` с лейблом `friday-drop`.
 2. **Вечер четверга:** Вы пишете в комментариях к Issue имена интересующих артистов в свободной форме.
-3. **Пятница, 12:00 МСК (09:00 UTC):** GitHub Actions запускает [`friday_release.yml`](.github/workflows/friday_release.yml):
+3. **Пятница, 10:00 МСК (07:00 UTC):** GitHub Actions запускает [`friday_release.yml`](.github/workflows/friday_release.yml):
    - Собирает артистов из ваших **«Любимых треков»** в Spotify (у которых минимум `MIN_LIKED_TRACKS=2` сохраненных песен).
    - Дополнительно читает комментарии из открытого Issue и передает **только текст комментариев** в Gemini (`gemini-3.5-flash-lite` со Structured Outputs и цепочкой резервных моделей) для извлечения имен новых артистов.
    - Собирает свежие синглы и альбомы этих артистов за последние 6 дней (UTC).
