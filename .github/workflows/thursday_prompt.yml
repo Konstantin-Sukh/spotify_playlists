@@ -1,0 +1,53 @@
+name: Thursday Artist Prompt
+
+on:
+  schedule:
+    # Every Thursday at 16:00 UTC (19:00 MSK)
+    - cron: "0 16 * * 4"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  create-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure label exists and create weekly Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const labelName = "friday-drop";
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: labelName });
+            } catch (error) {
+              if (error.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: labelName,
+                  color: "1DB954",
+                  description: "Weekly Spotify Friday Drop artist requests",
+                });
+              } else {
+                throw error;
+              }
+            }
+
+            const body = [
+              "Привет! Завтра в **12:00 МСК (09:00 UTC)** соберем свежие релизы за последние 6 дней.",
+              "",
+              "Напишите в комментариях к этому Issue имена артистов, чьи новинки хотите услышать в плейлисте.",
+              "- Можно перечислить списком или в свободной форме (опечатки исправит ИИ-парсер).",
+              "- Если комментариев не будет, Issue закроется автоматически без создания плейлиста.",
+            ].join("\n");
+
+            await github.rest.issues.create({
+              owner,
+              repo,
+              title: "Пятничный дроп: кого добавляем?",
+              body,
+              labels: [labelName],
+            });
