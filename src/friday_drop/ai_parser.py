@@ -22,7 +22,7 @@ class ArtistAIParser:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.8-flash",
         client: genai.Client | None = None,
     ) -> None:
         self._client = client or genai.Client(api_key=api_key)

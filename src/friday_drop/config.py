@@ -24,4 +24,4 @@ class Settings(BaseSettings):
     issue_label: str = "friday-drop"
     lookback_days: int = 6
     playlist_public: bool = False
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"

@@ -8,7 +8,7 @@
 2. **Вечер четверга:** Вы пишете в комментариях к Issue имена интересующих артистов в свободной форме.
 3. **Пятница, 12:00 МСК (09:00 UTC):** GitHub Actions запускает [`friday_release.yml`](.github/workflows/friday_release.yml):
    - Читает комментарии из открытого Issue.
-   - Передает **только текст комментариев** в Gemini (`gemini-2.5-flash` со Structured Outputs) для извлечения чистого списка артистов и исправления опечаток.
+   - Передает **только текст комментариев** в Gemini (`gemini-3.8-flash` со Structured Outputs) для извлечения чистого списка артистов и исправления опечаток.
    - Находит артистов в Spotify и собирает их релизы за последние 6 дней (UTC).
    - Локально фильтрует треки (убирает `sped up`, `slowed`, `reverb`, `instrumental`, `acapella` и дубликаты).
    - Создает плейлист в вашем аккаунте Spotify, публикует отчет со ссылкой в Issue и закрывает его.
@@ -26,7 +26,7 @@ flowchart TD
     FRI[Пятница 09:00 UTC<br/>friday_release.yml] --> ORCH[pipeline.py<br/>Оркестратор]
     ISSUE -->|Сырой текст комментариев| GHC[github_client.py]
     GHC --> ORCH
-    ORCH -->|Только текст комментариев| AI[ai_parser.py<br/>Gemini 2.5 Flash]
+    ORCH -->|Только текст комментариев| AI[ai_parser.py<br/>Gemini 3.8 Flash]
     AI -->|Список артистов| ORCH
 
     ORCH -->|Поиск и релизы за 6 дн. UTC| SP[spotify_client.py<br/>Spotipy]
