@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     min_liked_tracks: int = 2
     max_tracks_per_release: int = 4
     playlist_public: bool = False
+    ntfy_topic: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_models: list[str] = Field(
         default_factory=lambda: [

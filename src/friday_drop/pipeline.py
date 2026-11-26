@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.request
 from datetime import datetime, timezone
 
 from friday_drop.ai_parser import ArtistAIParser
@@ -119,6 +120,10 @@ def run_pipeline(
         gh.close_issue_with_report(issue, report)
     else:
         logger.info("Итоговый отчет (открытый Issue не найден):\n%s", report)
+
+    if settings.ntfy_topic.strip():
+        send_ntfy_notification(settings.ntfy_topic.strip(), summary)
+
     return summary
 
 
@@ -153,6 +158,40 @@ def format_report(summary: PlaylistSummary, lookback_days: int = 6) -> str:
         lines.append(f"- **Не найдены в Spotify:** {', '.join(summary.not_found_artists)}")
 
     return "\n".join(lines)
+
+
+def send_ntfy_notification(topic: str, summary: PlaylistSummary) -> None:
+    """Send a push notification via ntfy.sh with the Friday Drop result."""
+    if summary.playlist_url:
+        title = "Friday Drop Ready!"
+        message = (
+            f"Плейлист «{summary.playlist_name}» ({summary.track_count} треков) "
+            "уже в вашей медиатеке Spotify!"
+        )
+        headers = {
+            "Title": title,
+            "Tags": "headphones,musical_note",
+            "Click": summary.playlist_url,
+        }
+    else:
+        title = "Friday Drop: No New Releases"
+        message = "За последние 6 дней у выбранных артистов не вышло новых треков."
+        headers = {
+            "Title": title,
+            "Tags": "musical_note",
+        }
+
+    req = urllib.request.Request(
+        f"https://ntfy.sh/{topic}",
+        data=message.encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            logger.info("Push-уведомление в ntfy отправлено.")
+    except Exception as exc:
+        logger.warning("Не удалось отправить уведомление в ntfy: %s", exc)
 
 
 def main() -> None:

@@ -2,12 +2,11 @@
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from friday_drop.config import Settings
-from friday_drop.models import TrackCandidate
-from friday_drop.pipeline import format_report, run_pipeline
-from friday_drop.models import PlaylistSummary
+from friday_drop.models import PlaylistSummary, TrackCandidate
+from friday_drop.pipeline import format_report, run_pipeline, send_ntfy_notification
 
 
 def _make_settings() -> Settings:
@@ -163,3 +162,19 @@ def test_format_report_summarizes_many_no_release_artists_as_count() -> None:
     )
     report = format_report(summary, lookback_days=6)
     assert "15 артистов" in report
+
+
+def test_send_ntfy_notification_sends_click_header_with_playlist_url() -> None:
+    summary = PlaylistSummary(
+        playlist_url="https://open.spotify.com/playlist/xyz",
+        playlist_name="Friday Drop — 27.11.2026",
+        track_count=7,
+    )
+    with patch("friday_drop.pipeline.urllib.request.urlopen") as mock_urlopen:
+        send_ntfy_notification("my-secret-topic", summary)
+
+    mock_urlopen.assert_called_once()
+    req = mock_urlopen.call_args[0][0]
+    assert req.full_url == "https://ntfy.sh/my-secret-topic"
+    assert req.headers["Click"] == "https://open.spotify.com/playlist/xyz"
+    assert "7 треков" in req.data.decode("utf-8")
