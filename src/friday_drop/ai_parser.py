@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_STATUS_CODES = {404, 429, 500, 502, 503, 504}
 DEFAULT_FALLBACK_MODELS = (
-    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-flash-lite-latest",
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
 )
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_DELAY_SECONDS = 15.0
+DEFAULT_REQUEST_TIMEOUT_MS = 15_000
 
 SYSTEM_INSTRUCTION = (
     "Ты помощник для извлечения списка музыкальных исполнителей из комментариев пользователя. "
@@ -37,13 +38,16 @@ class ArtistAIParser:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-3.8-flash",
+        model: str = "gemini-3.5-flash-lite",
         fallback_models: list[str] | tuple[str, ...] = DEFAULT_FALLBACK_MODELS,
         client: genai.Client | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     ) -> None:
-        self._client = client or genai.Client(api_key=api_key)
+        self._client = client or genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=DEFAULT_REQUEST_TIMEOUT_MS),
+        )
         self._models = _unique_models([model, *fallback_models])
         self._max_retries = max_retries
         self._retry_delay_seconds = retry_delay_seconds

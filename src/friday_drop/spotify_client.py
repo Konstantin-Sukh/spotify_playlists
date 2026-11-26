@@ -117,9 +117,10 @@ class SpotifyClient:
         """Fetch artist albums/singles released on or after cutoff_date."""
         recent: list[dict] = []
         offset = 0
-        limit = 50
+        limit = 10
+        max_pages = 5
 
-        while True:
+        for _ in range(max_pages):
             page = self._sp.artist_albums(
                 artist_id,
                 include_groups="album,single",

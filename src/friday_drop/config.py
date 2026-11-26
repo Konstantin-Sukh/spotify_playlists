@@ -25,12 +25,12 @@ class Settings(BaseSettings):
     issue_label: str = "friday-drop"
     lookback_days: int = 6
     playlist_public: bool = False
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_fallback_models: list[str] = Field(
         default_factory=lambda: [
-            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
         ]
     )
