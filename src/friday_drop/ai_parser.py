@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from google import genai
@@ -11,6 +12,7 @@ from google.genai import errors, types
 from friday_drop.models import ParsedArtists
 
 logger = logging.getLogger(__name__)
+_WHITESPACE_RE = re.compile(r"\s+")
 
 FALLBACK_STATUS_CODES = {404, 429, 500, 502, 503, 504}
 DEFAULT_FALLBACK_MODELS = (
@@ -22,6 +24,7 @@ DEFAULT_FALLBACK_MODELS = (
 DEFAULT_MAX_RETRIES = 5
 DEFAULT_RETRY_DELAY_SECONDS = 15.0
 DEFAULT_REQUEST_TIMEOUT_MS = 15_000
+MAX_CHARS_PER_CHUNK = 8000
 
 SYSTEM_INSTRUCTION = (
     "Ты помощник для извлечения списка музыкальных исполнителей из комментариев пользователя. "
@@ -67,16 +70,14 @@ class ArtistAIParser:
         if not non_empty:
             return []
 
-        raw_text = "\n---\n".join(non_empty)
-        response = self._generate_with_retries(raw_text)
-
-        parsed = response.parsed
-        if isinstance(parsed, ParsedArtists):
-            raw_artists = parsed.artists
-        elif response.text:
-            raw_artists = ParsedArtists.model_validate_json(response.text).artists
-        else:
-            raw_artists = []
+        raw_artists: list[str] = []
+        for chunk in _chunk_comments(non_empty, max_chars=MAX_CHARS_PER_CHUNK):
+            response = self._generate_with_retries(chunk)
+            parsed = response.parsed
+            if isinstance(parsed, ParsedArtists):
+                raw_artists.extend(parsed.artists)
+            elif response.text:
+                raw_artists.extend(ParsedArtists.model_validate_json(response.text).artists)
 
         return _deduplicate_artists(raw_artists)
 
@@ -135,15 +136,59 @@ def _unique_models(models: list[str]) -> list[str]:
     return result
 
 
+def _chunk_comments(comments: list[str], max_chars: int = MAX_CHARS_PER_CHUNK) -> list[str]:
+    """Group comments (or split oversized ones by line) into bounded chunks."""
+    chunks: list[str] = []
+    current_parts: list[str] = []
+    current_len = 0
+
+    for comment in comments:
+        pieces = _split_oversized_text(comment, max_chars) if len(comment) > max_chars else [comment]
+        for piece in pieces:
+            sep_len = 5 if current_parts else 0  # len("\n---\n") == 5
+            if current_parts and current_len + sep_len + len(piece) > max_chars:
+                chunks.append("\n---\n".join(current_parts))
+                current_parts = [piece]
+                current_len = len(piece)
+            else:
+                current_parts.append(piece)
+                current_len += sep_len + len(piece)
+
+    if current_parts:
+        chunks.append("\n---\n".join(current_parts))
+    return chunks
+
+
+def _split_oversized_text(text: str, max_chars: int) -> list[str]:
+    """Split a large comment along line boundaries into chunks <= max_chars."""
+    parts: list[str] = []
+    lines: list[str] = []
+    length = 0
+
+    for line in text.splitlines():
+        add_len = len(line) + (1 if lines else 0)
+        if lines and length + add_len > max_chars:
+            parts.append("\n".join(lines))
+            lines = [line]
+            length = len(line)
+        else:
+            lines.append(line)
+            length += add_len
+
+    if lines:
+        parts.append("\n".join(lines))
+    return parts
+
+
 def _deduplicate_artists(artists: list[str]) -> list[str]:
     """Strip whitespace and deduplicate artist names case-insensitively."""
     result: list[str] = []
     seen: set[str] = set()
     for artist in artists:
-        cleaned = artist.strip()
+        cleaned = _WHITESPACE_RE.sub(" ", artist.strip())
         if not cleaned:
             continue
-        key = cleaned.lower()
+        key = cleaned.casefold()
         if key not in seen:
             seen.add(key)
             result.append(cleaned)

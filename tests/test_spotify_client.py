@@ -164,7 +164,7 @@ def test_get_recent_tracks_skips_releases_with_more_than_four_tracks() -> None:
     mock_sp.album_tracks.assert_called_once_with("alb_ep", limit=50, offset=0)
 
 
-def test_get_recent_tracks_queries_singles_and_albums_separately() -> None:
+def test_get_recent_tracks_queries_singles_albums_and_appears_on() -> None:
     mock_sp = MagicMock()
     mock_sp.artist_albums.side_effect = [
         {
@@ -191,11 +191,55 @@ def test_get_recent_tracks_queries_singles_and_albums_separately() -> None:
             ],
             "next": None,
         },
+        {
+            "items": [
+                {
+                    "id": "comp_1",
+                    "album_type": "compilation",
+                    "name": "Best Hits 2026",
+                    "release_date": "2026-11-27",
+                    "release_date_precision": "day",
+                    "total_tracks": 2,
+                },
+                {
+                    "id": "feat_single",
+                    "album_type": "single",
+                    "name": "Other Maxi",
+                    "release_date": "2026-11-26",
+                    "release_date_precision": "day",
+                    "total_tracks": 2,
+                },
+            ],
+            "next": None,
+        },
     ]
-    mock_sp.album_tracks.return_value = {
-        "items": [{"uri": "spotify:track:bk", "name": "Божья коровка"}],
-        "next": None,
-    }
+    mock_sp.album_tracks.side_effect = [
+        {
+            "items": [
+                {
+                    "uri": "spotify:track:bk",
+                    "name": "Божья коровка",
+                    "artists": [{"id": "husky_id"}],
+                }
+            ],
+            "next": None,
+        },
+        {
+            "items": [
+                {
+                    "uri": "spotify:track:other_only",
+                    "name": "Solo Track",
+                    "artists": [{"id": "other_id"}],
+                },
+                {
+                    "uri": "spotify:track:feat_track",
+                    "name": "Joint Track",
+                    "artists": [{"id": "other_id"}, {"id": "husky_id"}],
+                },
+            ],
+            "next": None,
+        },
+    ]
 
     client = SpotifyClient(
         client_id="id",
@@ -206,6 +250,6 @@ def test_get_recent_tracks_queries_singles_and_albums_separately() -> None:
     now_utc = datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc)
     tracks = client.get_recent_tracks("husky_id", "Husky", lookback_days=6, now_utc=now_utc)
 
-    assert [t.name for t in tracks] == ["Божья коровка"]
+    assert [t.name for t in tracks] == ["Божья коровка", "Joint Track"]
     groups = [c.kwargs["include_groups"] for c in mock_sp.artist_albums.call_args_list]
-    assert groups == ["single", "album"]
+    assert groups == ["single", "album", "appears_on"]

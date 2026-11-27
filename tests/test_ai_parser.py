@@ -113,3 +113,19 @@ def test_parse_comments_does_not_retry_on_400() -> None:
 
     assert mock_client.models.generate_content.call_count == 1
     mock_sleep.assert_not_called()
+
+
+def test_parse_comments_chunks_multiple_large_lists_and_deduplicates() -> None:
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        SimpleNamespace(parsed=ParsedArtists(artists=["Husky", "Muse"]), text=None),
+        SimpleNamespace(parsed=ParsedArtists(artists=["husky", "  MUSE ", "SALUKI"]), text=None),
+    ]
+    parser = ArtistAIParser(api_key="test-key", client=mock_client)
+
+    list_one = "\n".join(f"Artist {i} - Song {i}" for i in range(250))  # > 4000 chars
+    list_two = "\n".join(f"Other {i} - Track {i}" for i in range(250))  # > 4000 chars, combined > 8000
+    result = parser.parse_comments([list_one, list_two])
+
+    assert result == ["Husky", "Muse", "SALUKI"]
+    assert mock_client.models.generate_content.call_count == 2

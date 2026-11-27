@@ -127,7 +127,7 @@ class SpotifyClient:
         tracks: list[TrackCandidate] = []
         recent_albums = self._fetch_recent_albums(artist_id, cutoff_date)
 
-        for album in recent_albums:
+        for album, is_appears_on in recent_albums:
             total_tracks = album.get("total_tracks")
             if total_tracks is not None and total_tracks > max_tracks_per_release:
                 continue
@@ -141,6 +141,10 @@ class SpotifyClient:
                 continue
 
             for track in album_tracks:
+                if is_appears_on:
+                    track_artists = track.get("artists")
+                    if track_artists and not any(a.get("id") == artist_id for a in track_artists):
+                        continue
                 tracks.append(
                     TrackCandidate(
                         uri=track["uri"],
@@ -174,13 +178,21 @@ class SpotifyClient:
 
         return playlist["external_urls"]["spotify"]
 
-    def _fetch_recent_albums(self, artist_id: str, cutoff_date: date) -> list[dict]:
-        """Fetch artist singles and albums released on or after cutoff_date."""
-        recent: list[dict] = []
+    def _fetch_recent_albums(
+        self, artist_id: str, cutoff_date: date
+    ) -> list[tuple[dict, bool]]:
+        """Fetch artist singles, albums, and appears_on releases on or after cutoff_date."""
+        recent: list[tuple[dict, bool]] = []
         seen_ids: set[str] = set()
         limit = 10
 
-        for include_group, max_pages in (("single", 2), ("album", 1)):
+        groups = (
+            ("single", 2, True),
+            ("album", 1, True),
+            ("appears_on", 5, False),
+        )
+        for include_group, max_pages, stop_when_no_recent in groups:
+            is_appears_on = include_group == "appears_on"
             offset = 0
             for _ in range(max_pages):
                 page = self._sp.artist_albums(
@@ -195,6 +207,9 @@ class SpotifyClient:
 
                 found_recent_on_page = False
                 for album in items:
+                    if is_appears_on and album.get("album_type") == "compilation":
+                        continue
+
                     release_date = _parse_release_date(
                         album.get("release_date", ""),
                         album.get("release_date_precision", ""),
@@ -204,9 +219,9 @@ class SpotifyClient:
                         album_id = album.get("id")
                         if album_id and album_id not in seen_ids:
                             seen_ids.add(album_id)
-                            recent.append(album)
+                            recent.append((album, is_appears_on))
 
-                if page.get("next") is None or not found_recent_on_page:
+                if page.get("next") is None or (stop_when_no_recent and not found_recent_on_page):
                     break
                 offset += limit
 
