@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     lookback_days: int = 6
     min_liked_tracks: int = 1
     max_tracks_per_release: int = 4
+    liked_cache_path: str = ".cache/liked_artists.json"
+    liked_cache_ttl_hours: int = 72
     playlist_public: bool = False
     ntfy_topic: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"

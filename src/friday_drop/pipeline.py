@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from friday_drop.ai_parser import ArtistAIParser
 from friday_drop.config import Settings
@@ -23,6 +25,54 @@ def normalize_artist_name(name: str) -> str:
     """Normalize artist name for case-insensitive matching against Liked Songs."""
     cleaned = _WHITESPACE_RE.sub(" ", name.strip()).casefold()
     return cleaned.replace("ё", "е")
+
+
+def load_liked_artists(
+    sp: SpotifyClient,
+    min_tracks: int,
+    cache_path: str,
+    cache_ttl_hours: int,
+    now_utc: datetime,
+) -> list[tuple[str, str]]:
+    """Load liked artists from local cache if fresh, otherwise fetch and cache."""
+    path = Path(cache_path) if cache_path and cache_ttl_hours > 0 else None
+
+    if path is not None and path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            updated_at = datetime.fromisoformat(payload["updated_at"])
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+            is_fresh = (now_utc - updated_at) < timedelta(hours=cache_ttl_hours)
+            if is_fresh and payload.get("min_tracks") == min_tracks:
+                artists = [(str(item[0]), str(item[1])) for item in payload.get("artists", [])]
+                logger.info(
+                    "Загружено %d артистов из кэша %s (обновлен %s).",
+                    len(artists),
+                    path,
+                    updated_at.strftime("%Y-%m-%d %H:%M UTC"),
+                )
+                return artists
+        except Exception as exc:
+            logger.warning("Не удалось прочитать кэш %s (%s), обновляю из Spotify...", path, exc)
+
+    artists = sp.get_liked_artists(min_tracks=min_tracks)
+
+    if path is not None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "updated_at": now_utc.isoformat(),
+                "min_tracks": min_tracks,
+                "artists": [[artist_id, name] for artist_id, name in artists],
+            }
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            logger.info("Кэш артистов сохранен в %s (%d записей).", path, len(artists))
+        except Exception as exc:
+            logger.warning("Не удалось сохранить кэш %s: %s", path, exc)
+
+    return artists
 
 
 def run_pipeline(
@@ -66,9 +116,16 @@ def run_pipeline(
         redirect_uri=settings.spotify_redirect_uri,
     )
 
-    liked_artists = sp.get_liked_artists(min_tracks=settings.min_liked_tracks)
+    current_utc = now_utc or datetime.now(timezone.utc)
+    liked_artists = load_liked_artists(
+        sp=sp,
+        min_tracks=settings.min_liked_tracks,
+        cache_path=settings.liked_cache_path,
+        cache_ttl_hours=settings.liked_cache_ttl_hours,
+        now_utc=current_utc,
+    )
     logger.info(
-        "Загружено %d артистов из «Любимых треков» (минимум %d трек).",
+        "Доступно %d артистов из «Любимых треков» (минимум %d трек).",
         len(liked_artists),
         settings.min_liked_tracks,
     )
@@ -98,7 +155,6 @@ def run_pipeline(
         skipped_not_liked_count,
     )
 
-    current_utc = now_utc or datetime.now(timezone.utc)
     candidates: list[TrackCandidate] = []
     matched_artists: list[str] = []
     no_releases_artists: list[str] = []

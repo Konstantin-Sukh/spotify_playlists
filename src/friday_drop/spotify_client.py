@@ -175,34 +175,40 @@ class SpotifyClient:
         return playlist["external_urls"]["spotify"]
 
     def _fetch_recent_albums(self, artist_id: str, cutoff_date: date) -> list[dict]:
-        """Fetch artist albums/singles released on or after cutoff_date."""
+        """Fetch artist singles and albums released on or after cutoff_date."""
         recent: list[dict] = []
-        offset = 0
+        seen_ids: set[str] = set()
         limit = 10
-        max_pages = 2
 
-        for _ in range(max_pages):
-            page = self._sp.artist_albums(
-                artist_id,
-                include_groups="album,single",
-                limit=limit,
-                offset=offset,
-            )
-            items = page.get("items", [])
-            if not items:
-                break
-
-            for album in items:
-                release_date = _parse_release_date(
-                    album.get("release_date", ""),
-                    album.get("release_date_precision", ""),
+        for include_group, max_pages in (("single", 2), ("album", 1)):
+            offset = 0
+            for _ in range(max_pages):
+                page = self._sp.artist_albums(
+                    artist_id,
+                    include_groups=include_group,
+                    limit=limit,
+                    offset=offset,
                 )
-                if release_date is not None and release_date >= cutoff_date:
-                    recent.append(album)
+                items = page.get("items", [])
+                if not items:
+                    break
 
-            if page.get("next") is None:
-                break
-            offset += limit
+                found_recent_on_page = False
+                for album in items:
+                    release_date = _parse_release_date(
+                        album.get("release_date", ""),
+                        album.get("release_date_precision", ""),
+                    )
+                    if release_date is not None and release_date >= cutoff_date:
+                        found_recent_on_page = True
+                        album_id = album.get("id")
+                        if album_id and album_id not in seen_ids:
+                            seen_ids.add(album_id)
+                            recent.append(album)
+
+                if page.get("next") is None or not found_recent_on_page:
+                    break
+                offset += limit
 
         return recent
 

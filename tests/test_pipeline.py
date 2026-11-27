@@ -1,6 +1,7 @@
 """Integration-style unit tests for the Friday Drop pipeline."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +9,7 @@ from friday_drop.config import Settings
 from friday_drop.models import PlaylistSummary, TrackCandidate
 from friday_drop.pipeline import (
     format_report,
+    load_liked_artists,
     normalize_artist_name,
     run_pipeline,
     send_ntfy_notification,
@@ -22,6 +24,7 @@ def _make_settings() -> Settings:
         spotify_client_id="sp_id",
         spotify_client_secret="sp_secret",
         spotify_refresh_token="sp_refresh",
+        liked_cache_ttl_hours=0,
     )
 
 
@@ -169,3 +172,27 @@ def test_send_ntfy_notification_sends_click_header_with_playlist_url() -> None:
     assert req.full_url == "https://ntfy.sh/my-secret-topic"
     assert req.headers["Click"] == "https://open.spotify.com/playlist/xyz"
     assert "7 треков" in req.data.decode("utf-8")
+
+
+def test_load_liked_artists_uses_fresh_cache_and_refreshes_when_expired(tmp_path: Path) -> None:
+    cache_file = tmp_path / "liked_artists.json"
+    sp = MagicMock()
+    sp.get_liked_artists.return_value = [("a1", "Husky"), ("a2", "Muse")]
+
+    t0 = datetime(2026, 11, 27, 9, 0, tzinfo=timezone.utc)
+    first = load_liked_artists(sp, min_tracks=1, cache_path=str(cache_file), cache_ttl_hours=72, now_utc=t0)
+    assert first == [("a1", "Husky"), ("a2", "Muse")]
+    assert sp.get_liked_artists.call_count == 1
+    assert cache_file.exists()
+
+    # 10 hours later -> cache hit, no API call
+    t1 = datetime(2026, 11, 27, 19, 0, tzinfo=timezone.utc)
+    second = load_liked_artists(sp, min_tracks=1, cache_path=str(cache_file), cache_ttl_hours=72, now_utc=t1)
+    assert second == [("a1", "Husky"), ("a2", "Muse")]
+    assert sp.get_liked_artists.call_count == 1
+
+    # 80 hours later -> expired, refreshes from Spotify
+    t2 = datetime(2026, 11, 30, 17, 0, tzinfo=timezone.utc)
+    third = load_liked_artists(sp, min_tracks=1, cache_path=str(cache_file), cache_ttl_hours=72, now_utc=t2)
+    assert third == [("a1", "Husky"), ("a2", "Muse")]
+    assert sp.get_liked_artists.call_count == 2

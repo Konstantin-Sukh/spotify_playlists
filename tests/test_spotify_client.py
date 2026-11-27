@@ -162,3 +162,50 @@ def test_get_recent_tracks_skips_releases_with_more_than_four_tracks() -> None:
 
     assert len(tracks) == 4
     mock_sp.album_tracks.assert_called_once_with("alb_ep", limit=50, offset=0)
+
+
+def test_get_recent_tracks_queries_singles_and_albums_separately() -> None:
+    mock_sp = MagicMock()
+    mock_sp.artist_albums.side_effect = [
+        {
+            "items": [
+                {
+                    "id": "single_1",
+                    "name": "Божья коровка",
+                    "release_date": "2026-11-27",
+                    "release_date_precision": "day",
+                    "total_tracks": 1,
+                }
+            ],
+            "next": None,
+        },
+        {
+            "items": [
+                {
+                    "id": "album_1",
+                    "name": "Партизан",
+                    "release_date": "2025-11-28",
+                    "release_date_precision": "day",
+                    "total_tracks": 15,
+                }
+            ],
+            "next": None,
+        },
+    ]
+    mock_sp.album_tracks.return_value = {
+        "items": [{"uri": "spotify:track:bk", "name": "Божья коровка"}],
+        "next": None,
+    }
+
+    client = SpotifyClient(
+        client_id="id",
+        client_secret="secret",
+        refresh_token="refresh",
+        sp=mock_sp,
+    )
+    now_utc = datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc)
+    tracks = client.get_recent_tracks("husky_id", "Husky", lookback_days=6, now_utc=now_utc)
+
+    assert [t.name for t in tracks] == ["Божья коровка"]
+    groups = [c.kwargs["include_groups"] for c in mock_sp.artist_albums.call_args_list]
+    assert groups == ["single", "album"]
