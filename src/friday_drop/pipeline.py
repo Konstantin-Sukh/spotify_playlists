@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import urllib.request
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from friday_drop.ai_parser import ArtistAIParser
@@ -14,6 +16,13 @@ from friday_drop.spotify_client import SpotifyClient
 from friday_drop.track_filter import filter_tracks
 
 logger = logging.getLogger(__name__)
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def normalize_artist_name(name: str) -> str:
+    """Normalize artist name for case-insensitive matching against Liked Songs."""
+    cleaned = _WHITESPACE_RE.sub(" ", name.strip()).casefold()
+    return cleaned.replace("ё", "е")
 
 
 def run_pipeline(
@@ -29,17 +38,26 @@ def run_pipeline(
         repository=settings.github_repository,
     )
     issue = gh.find_open_issue(label=settings.issue_label)
+    if issue is None:
+        logger.info("Открытый Issue с лейблом '%s' не найден. Завершаем работу.", settings.issue_label)
+        return None
 
-    issue_artist_queries: list[str] = []
-    if issue is not None:
-        comments = gh.get_issue_comments(issue)
-        if comments:
-            parser = ai_parser or ArtistAIParser(
-                api_key=settings.gemini_api_key,
-                model=settings.gemini_model,
-                fallback_models=settings.gemini_fallback_models,
-            )
-            issue_artist_queries = parser.parse_comments(comments)
+    comments = gh.get_issue_comments(issue)
+    if not comments:
+        logger.info("Комментариев в Issue #%s нет. Закрываем Issue.", issue.number)
+        gh.close_issue_no_artists(issue)
+        return None
+
+    parser = ai_parser or ArtistAIParser(
+        api_key=settings.gemini_api_key,
+        model=settings.gemini_model,
+        fallback_models=settings.gemini_fallback_models,
+    )
+    issue_artist_queries = parser.parse_comments(comments)
+    if not issue_artist_queries:
+        logger.info("Артисты в комментариях Issue #%s не найдены. Закрываем Issue.", issue.number)
+        gh.close_issue_no_artists(issue)
+        return None
 
     sp = spotify_client or SpotifyClient(
         client_id=settings.spotify_client_id,
@@ -50,31 +68,35 @@ def run_pipeline(
 
     liked_artists = sp.get_liked_artists(min_tracks=settings.min_liked_tracks)
     logger.info(
-        "Найдено %d артистов из «Любимых треков» (минимум %d треков).",
+        "Загружено %d артистов из «Любимых треков» (минимум %d трек).",
         len(liked_artists),
         settings.min_liked_tracks,
     )
 
-    artists_to_check: list[tuple[str, str]] = list(liked_artists)
-    seen_artist_ids: set[str] = {artist_id for artist_id, _ in liked_artists}
-    not_found_artists: list[str] = []
+    liked_by_name: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for artist_id, canonical_name in liked_artists:
+        liked_by_name[normalize_artist_name(canonical_name)].append((artist_id, canonical_name))
+
+    artists_to_check: list[tuple[str, str]] = []
+    seen_artist_ids: set[str] = set()
+    skipped_not_liked_count = 0
 
     for artist_query in issue_artist_queries:
-        found = sp.search_artist(artist_query)
-        if found is None:
-            not_found_artists.append(artist_query)
+        matches = liked_by_name.get(normalize_artist_name(artist_query))
+        if not matches:
+            skipped_not_liked_count += 1
             continue
 
-        artist_id, canonical_name = found
-        if artist_id not in seen_artist_ids:
-            seen_artist_ids.add(artist_id)
-            artists_to_check.append((artist_id, canonical_name))
+        for artist_id, canonical_name in matches:
+            if artist_id not in seen_artist_ids:
+                seen_artist_ids.add(artist_id)
+                artists_to_check.append((artist_id, canonical_name))
 
-    if not artists_to_check and not not_found_artists:
-        logger.info("Нет артистов для проверки (ни в «Любимых треках», ни в Issue).")
-        if issue is not None:
-            gh.close_issue_no_artists(issue)
-        return None
+    logger.info(
+        "После пересечения с «Любимыми треками»: %d артистов для проверки, %d пропущено.",
+        len(artists_to_check),
+        skipped_not_liked_count,
+    )
 
     current_utc = now_utc or datetime.now(timezone.utc)
     candidates: list[TrackCandidate] = []
@@ -113,13 +135,10 @@ def run_pipeline(
         track_count=len(filtered_tracks),
         matched_artists=matched_artists,
         no_releases_artists=no_releases_artists,
-        not_found_artists=not_found_artists,
+        skipped_not_liked_count=skipped_not_liked_count,
     )
     report = format_report(summary, lookback_days=settings.lookback_days)
-    if issue is not None:
-        gh.close_issue_with_report(issue, report)
-    else:
-        logger.info("Итоговый отчет (открытый Issue не найден):\n%s", report)
+    gh.close_issue_with_report(issue, report)
 
     if settings.ntfy_topic.strip():
         send_ntfy_notification(settings.ntfy_topic.strip(), summary)
@@ -137,8 +156,9 @@ def format_report(summary: PlaylistSummary, lookback_days: int = 6) -> str:
     else:
         lines.append("## Новых релизов не найдено")
         lines.append(
-            f"За последние {lookback_days} дней у выбранных артистов не вышло новых треков "
-            "(после фильтрации версий), поэтому плейлист не создавался."
+            f"За последние {lookback_days} дней у подходящих артистов из ваших «Любимых треков» "
+            "не вышло новых треков (после фильтрации версий и релизов до 4 треков), "
+            "поэтому плейлист не создавался."
         )
 
     if summary.matched_artists:
@@ -154,8 +174,10 @@ def format_report(summary: PlaylistSummary, lookback_days: int = 6) -> str:
                 f"- **Без свежих релизов ({lookback_days} дн.):** "
                 f"{len(summary.no_releases_artists)} артистов"
             )
-    if summary.not_found_artists:
-        lines.append(f"- **Не найдены в Spotify:** {', '.join(summary.not_found_artists)}")
+    if summary.skipped_not_liked_count:
+        lines.append(
+            f"- **Нет в «Любимых треках» (пропущено):** {summary.skipped_not_liked_count}"
+        )
 
     return "\n".join(lines)
 
@@ -175,7 +197,7 @@ def send_ntfy_notification(topic: str, summary: PlaylistSummary) -> None:
         }
     else:
         title = "Friday Drop: No New Releases"
-        message = "За последние 6 дней у выбранных артистов не вышло новых треков."
+        message = "За последние 6 дней у подходящих артистов не вышло новых треков."
         headers = {
             "Title": title,
             "Tags": "musical_note",

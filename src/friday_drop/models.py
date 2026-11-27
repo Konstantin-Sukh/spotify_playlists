@@ -31,3 +31,4 @@ class PlaylistSummary(BaseModel):
     matched_artists: list[str] = Field(default_factory=list)
     no_releases_artists: list[str] = Field(default_factory=list)
     not_found_artists: list[str] = Field(default_factory=list)
+    skipped_not_liked_count: int = 0

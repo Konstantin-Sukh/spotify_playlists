@@ -2,8 +2,8 @@ name: Friday Spotify Release
 
 on:
   schedule:
-    # Every Friday at 07:00 UTC (10:00 MSK)
-    - cron: "0 7 * * 5"
+    # Every Friday at 06:40 UTC (09:40 MSK, avoids top-of-hour cron delays so it finishes by 10:00 MSK)
+    - cron: "40 6 * * 5"
   workflow_dispatch:
 
 permissions:

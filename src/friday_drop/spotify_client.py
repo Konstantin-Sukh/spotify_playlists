@@ -30,15 +30,22 @@ class SpotifyClient:
         if sp is not None:
             self._sp = sp
         else:
+            cache_handler = MemoryCacheHandler()
             oauth = SpotifyOAuth(
                 client_id=client_id,
                 client_secret=client_secret,
                 redirect_uri=redirect_uri,
                 scope=SCOPES,
-                cache_handler=MemoryCacheHandler(),
+                cache_handler=cache_handler,
             )
-            token_info = oauth.refresh_access_token(refresh_token)
-            self._sp = spotipy.Spotify(auth=token_info["access_token"])
+            oauth.refresh_access_token(refresh_token)
+            self._sp = spotipy.Spotify(
+                auth_manager=oauth,
+                requests_timeout=15,
+                status_forcelist=(500, 502, 503, 504),
+                retries=2,
+                status_retries=2,
+            )
 
     def search_artist(self, name: str) -> tuple[str, str] | None:
         """Search Spotify for an artist and return (artist_id, canonical_name) or None."""
@@ -60,7 +67,7 @@ class SpotifyClient:
         best = items[0]
         return best["id"], best["name"]
 
-    def get_liked_artists(self, min_tracks: int = 2) -> list[tuple[str, str]]:
+    def get_liked_artists(self, min_tracks: int = 1) -> list[tuple[str, str]]:
         """Return (artist_id, name) for artists with at least min_tracks in Liked Songs."""
         if min_tracks <= 0:
             return []

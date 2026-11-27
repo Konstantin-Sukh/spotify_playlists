@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     issue_label: str = "friday-drop"
     lookback_days: int = 6
-    min_liked_tracks: int = 2
+    min_liked_tracks: int = 1
     max_tracks_per_release: int = 4
     playlist_public: bool = False
     ntfy_topic: str = ""
